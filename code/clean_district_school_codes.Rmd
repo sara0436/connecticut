@@ -1,0 +1,129 @@
+---
+title: "Data Cleaning File"
+subtitle: "CT EdSight - District & School Codes"
+author: "Sara McClafferty"
+date: "r Sys.Date()"
+output: none
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code.
+
+  - Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+  - Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+  - When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+  - The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
+
+# Setup
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load Packages
+```{r packages, include=FALSE}
+# Clear environment
+rm(list = ls())
+
+# Load packages - first pacman, installing if necessary, then others
+if (!require("pacman")) install.packages("pacman"); library(pacman)
+pacman::p_load(here, readxl, tidyverse, janitor, lubridate, skimr)
+```
+
+# Data Source
+1) Navigate to https://public-edsight.ct.gov/
+2) Then navigagte to Overview > General Information > Find Schools > View Data
+3) In the "Organization Type(s)" drop-down filter, select the following:
+-- public schools
+-- public school districts
+-- regional schools
+-- regional school districts
+-- public charter schools
+-- public charter school districts
+-- regional education service center schools
+-- regional education service center school districts
+-- CT technical education and career schools
+-- CT technical education and career districts
+3) Export to Excel.
+
+# Load Data
+```{r}
+# Load data
+df <- read_excel(here("data/raw/CT_district_school_codes.xlsx"), sheet = "Results")
+
+# Standardize column names
+df <- df %>% 
+  clean_names %>% 
+  rename(district_name = district,
+         school_name = school_program_name)
+```
+
+# Validate and standardize each variable
+```{r}
+# org_type
+df <- df %>% 
+  mutate(org_type = factor(org_type))
+
+# district_name
+df <- df %>% 
+  mutate(district_name = factor(district_name))
+
+# school_name
+df <- df %>% 
+  mutate(school_name = factor(school_name))
+
+# organization_code
+df <- df %>% 
+  mutate(organization_code = factor(organization_code))
+
+# low_grade
+df <- df %>% 
+  mutate(low_grade = gsub('g', '', df$low_grade)) %>%
+  mutate(low_grade = factor(low_grade))
+
+# high_grade
+df <- df %>% 
+  mutate(high_grade = gsub('g', '', df$high_grade)) %>%
+  mutate(high_grade = factor(high_grade))
+```
+
+# Remove any empty rows or columns
+```{r}
+df <- df %>%
+  remove_empty("rows") %>% 
+  remove_empty("cols")
+```
+
+# Check for any duplicates
+```{r}
+ df %>%
+  get_dupes()
+
+df %>%
+  get_dupes(org_type, district_name, school_name)
+
+# Note: I identified two duplicates: Webster Elementary School (located in NH, seems to be included as an error) and Mount Pleasant Blythedale Union Free School District (provide educational services to medically fragile children in a hospital setting). Neither school is otherwise included in SY 2023-24 CT student enrollment data. For this reason, I feel comfortable dropping both of these schools from the dataset.
+
+# Drop duplicate schools
+df <- df %>% filter(!school_name %in% c("Webster School", "Mount Pleasant Blythedale Union Free School District"))
+```
+
+# Create new variables/cols derivative of the data, to use in later analysis
+```{r}
+#NA
+```
+
+# Add group/subgroup info for demographics columns
+```{r}
+#NA
+```
+
+# Drop unnecessary columns
+```{r}
+df <- df %>% subset(select = -c(phone:fax))
+```
+
+
+# Write clean df to data/clean folder ---------------------
+```{r}
+df %>% saveRDS(here("data/clean/district_school_codes.rds"))
+```
