@@ -150,5 +150,5 @@ df <- df %>%
 
 # Write clean df to data/clean folder ---------------------
 ```{r}
-df %>% saveRDS(here("data/clean/enrollment/enrollment_race_ethnicity.rds"))
+df %>% saveRDS(here("data/clean/enrollment_race_ethnicity.rds"))
 ```

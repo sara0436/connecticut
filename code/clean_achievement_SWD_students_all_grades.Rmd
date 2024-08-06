@@ -188,7 +188,7 @@ df <- df %>%
 
 # Write clean df to data/clean folder ---------------------
 ```{r}
-df %>% saveRDS(here("data/clean/smarterbalanced_achievement/smarterbalanced_achievement_SWD_students_all_grades.rds"))
+df %>% saveRDS(here("data/clean/smarterbalanced_achievement_SWD_students_all_grades.rds"))
 ```
 
 

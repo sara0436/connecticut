@@ -128,5 +128,5 @@ df <- df %>% subset(select = -c(student_group))
 
 # Write clean df to data/clean folder ---------------------
 ```{r}
-df %>% saveRDS(here("data/clean/enrollment/enrollment_school.rds"))
+df %>% saveRDS(here("data/clean/enrollment_school.rds"))
 ```

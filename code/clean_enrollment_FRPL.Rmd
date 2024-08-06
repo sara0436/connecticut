@@ -144,5 +144,5 @@ df <- df %>% subset(select = -c(free_reduced_price_lunch_eligibility))
 
 # Write clean df to data/clean folder ---------------------
 ```{r}
-df %>% saveRDS(here("data/clean/enrollment/enrollment_FRPL.rds"))
+df %>% saveRDS(here("data/clean/enrollment_FRPL.rds"))
 ```
