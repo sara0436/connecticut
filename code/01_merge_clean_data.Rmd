@@ -1,0 +1,284 @@
+---
+title: "Data Merging File"
+subtitle: "CT EdSight Data - Merge Cleaned Data"
+author: "Sara McClafferty"
+date: "r Sys.Date()"
+output: none
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code.
+
+  - Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+  - Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+  - When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+  - The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
+
+# Setup
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load Packages
+```{r packages, include=FALSE}
+# Clear environment
+rm(list = ls())
+
+# Load packages - first pacman, installing if necessary, then others
+if (!require("pacman")) install.packages("pacman"); library(pacman)
+pacman::p_load(here, readxl, tidyverse, janitor, skimr, writexl)
+```
+
+# Load clean data
+```{r}
+# Create tibble with files names (2 cols, with "short" or "long" file names)
+clean_files <- tibble(short = list.files(here("data/clean")) %>% str_remove(".rds"), 
+                      long = list.files(here("data/clean"), full.names = TRUE))
+
+
+# Reads the list of RDS files, assign names to each, and then creates objects in the global environment
+map(clean_files$long, readRDS) %>% 
+  set_names(paste0("df_", sub("^smarterbalanced_", "", sub("students", "stu", clean_files$short)))) %>% 
+  # adds "df_" prefix; substitutes "smarterbalanced_" with "", and subs "students" with "stu"
+  list2env(envir = globalenv())
+```
+
+# Transform data, as needed for merge (PART 1)
+```{r}
+# Remove school code from school_name
+df_enrollment_school <- df_enrollment_school %>% mutate(school_name = gsub(" \\(.*?\\)", "", school_name))
+df_enrollment_ELL <- df_enrollment_ELL %>% mutate(school_name = gsub(" \\(.*?\\)", "", school_name))
+df_enrollment_FRPL <- df_enrollment_FRPL %>% mutate(school_name = gsub(" \\(.*?\\)", "", school_name))
+df_enrollment_SWD <- df_enrollment_SWD %>% mutate(school_name = gsub(" \\(.*?\\)", "", school_name))
+df_enrollment_race_ethnicity <- df_enrollment_race_ethnicity %>% mutate(school_name = gsub(" \\(.*?\\)", "", school_name))
+```
+
+# Transform data, as needed for merge (PART 2)
+```{r}
+# Create temporary df with district codes only
+df_district_codes <- df_district_school_codes %>%
+  mutate(org_type = as.character(org_type)) %>% 
+  filter(grepl("*Districts$", org_type, ignore.case = F)) %>% 
+  mutate(district_code = factor(organization_code)) %>% 
+  mutate(entity_type = factor("District")) %>% 
+  select(entity_type, org_type, district_name, school_name, organization_code, district_code)
+
+# Create temporary df with school codes only
+df_school_codes <- df_district_school_codes %>%
+  mutate(org_type = as.character(org_type)) %>%
+  filter(grepl("*Schools$", org_type, ignore.case = F)) %>% 
+  mutate(school_code = factor(organization_code)) %>% 
+  mutate(entity_type = factor("School")) %>% 
+  select(entity_type, org_type, district_name, school_name, organization_code, school_code)
+
+# Create temporary df with other org codes
+df_other_codes <- df_district_school_codes %>%
+  mutate(org_type = as.character(org_type)) %>%
+  filter(!grepl("*Districts$", org_type, ignore.case = F)) %>%
+  filter(!grepl("*Schools$", org_type, ignore.case = F)) %>% 
+  mutate(entity_type = factor("Other")) %>% 
+  select(entity_type, org_type, district_name, school_name, organization_code)
+
+df_temp <- plyr::rbind.fill(df_district_codes, df_school_codes, df_other_codes)
+
+
+# Add school_codes to enrollment data
+df_enrollment_district <- left_join(df_enrollment_district, df_temp, by = c("district_name", "school_name")) 
+df_enrollment_statewide <- left_join(df_enrollment_statewide, df_temp, by = c("entity_type", "district_name", "school_name")) %>% 
+  mutate(district_code = factor("0000000")) %>% 
+  mutate(organization_code = factor("0000000")) %>% 
+  mutate(org_type = factor("State of Connecticut"))
+
+df_enrollment_school <- left_join(df_enrollment_school, df_temp, by = c("district_name", "school_name"))
+df_enrollment_FRPL <- left_join(df_enrollment_FRPL, df_temp, by = c("district_name", "school_name"))
+df_enrollment_ELL <- left_join(df_enrollment_ELL, df_temp, by = c("district_name", "school_name"))
+df_enrollment_SWD <- left_join(df_enrollment_SWD, df_temp, by = c("district_name", "school_name"))
+df_enrollment_race_ethnicity <- left_join(df_enrollment_race_ethnicity, df_temp, by = c("district_name", "school_name"))
+```
+
+# Check compatability for merge
+```{r}
+# check out variable names/format
+janitor::compare_df_cols(df_enrollment_district,
+                         df_achievement_all_stu,
+                         df_achievement_all_stu_by_grade)
+
+# check out number of districts in each df
+skimr::skim(df_achievement_all_stu$district_name) # 193 unique names; 193 unique codes
+skimr::skim(df_enrollment_district$district_name) # 204 unique names
+```
+
+# Merge cleaned  ENROLLMENT data
+```{r}
+# merge school enrollment
+df_school <- rbind(df_enrollment_school, df_enrollment_ELL, df_enrollment_FRPL, df_enrollment_SWD, df_enrollment_race_ethnicity)
+
+# merge school enrollment & district enrollment
+#janitor::compare_df_cols(df_enrollment_school, df_enrollment_district)
+df_full <- plyr::rbind.fill(df_school, df_enrollment_district)
+
+# merge district enrollment & state_enrollment
+#janitor::compare_df_cols(df_enrollment_district, df_enrollment_statewide)
+df_full <- rbind(df_full, df_enrollment_statewide)
+```
+
+# Merge cleaned ACHIEVEMENT data
+```{r}
+# merge with achievement_all_stu
+#janitor::compare_df_cols(df_full, df_achievement_all_stu)
+df_full <- full_join(df_full, df_achievement_all_stu,
+                     by = c("school_year", "entity_type", "district_name", "district_code",
+                            "school_name", "school_code",
+                            "grade", "subject", "gender",
+                            "race_ethnicity", "special_education_status", "english_learner_status",
+                            "free_reduced_lunch_2_levels", "free_reduced_lunch_3_levels",
+                            "race_ethnicity_grouped", "race_ethnicity_bipoc"))
+
+
+# merge with achievement_all_stu_by_grade
+#janitor::compare_df_cols(df_full, df_achievement_all_stu_by_grade)
+df_full <- full_join(df_full, df_achievement_all_stu_by_grade,
+                     by = c("school_year", "entity_type", "district_name", "district_code",
+                            "school_name", "school_code", "grade", "subject", "gender",
+                            "race_ethnicity", "special_education_status", "english_learner_status",
+                            "free_reduced_lunch_2_levels", "free_reduced_lunch_3_levels",
+                            "race_ethnicity_grouped", "race_ethnicity_bipoc", "num_tested",
+                            "pct_proficient"))
+
+
+# merge with achievement_ELL_stu_all_grades
+df_full <- full_join(df_full, df_achievement_ELL_stu_all_grades,
+                     by = c("school_year", "entity_type", "district_name", "district_code",
+                            "school_name", "school_code", "grade", "subject", "gender",
+                            "race_ethnicity", "special_education_status", "english_learner_status",
+                            "free_reduced_lunch_2_levels", "free_reduced_lunch_3_levels",
+                            "race_ethnicity_grouped", "race_ethnicity_bipoc", "num_tested",
+                            "pct_proficient"))
+
+
+# merge with achievement_ELL_stu_by_grade
+df_full <- full_join(df_full, df_achievement_ELL_stu_by_grade,
+                     by = c("school_year", "entity_type", "district_name", "district_code",
+                            "school_name", "school_code", "grade", "subject", "gender",
+                            "race_ethnicity", "special_education_status", "english_learner_status",
+                            "free_reduced_lunch_2_levels", "free_reduced_lunch_3_levels",
+                            "race_ethnicity_grouped", "race_ethnicity_bipoc", "num_tested",
+                            "pct_proficient", "avg_VSS"))
+
+# merge with achievement_FRPL_stu_all_grades
+df_full <- full_join(df_full, df_achievement_FRPL_stu_all_grades,
+                     by = c("school_year", "entity_type", "district_name", "district_code",
+                            "school_name", "school_code", "grade", "subject", "gender",
+                            "race_ethnicity", "special_education_status", "english_learner_status",
+                            "free_reduced_lunch_2_levels", "free_reduced_lunch_3_levels",
+                            "race_ethnicity_grouped", "race_ethnicity_bipoc", "num_tested",
+                            "pct_proficient"))
+
+# merge with achievement_FRPL_stu_by_grade
+df_full <- full_join(df_full, df_achievement_FRPL_stu_by_grade,
+                     by = c("school_year", "entity_type", "district_name", "district_code",
+                            "school_name", "school_code", "grade", "subject", "gender",
+                            "race_ethnicity", "special_education_status", "english_learner_status",
+                            "free_reduced_lunch_2_levels", "free_reduced_lunch_3_levels",
+                            "race_ethnicity_grouped", "race_ethnicity_bipoc", "num_tested",
+                            "pct_proficient", "avg_VSS"))
+
+# merge with df_achievement_race_ethnicity_all_grades
+df_full <- full_join(df_full, df_achievement_race_ethnicity_all_grades,
+                     by = c("school_year", "entity_type", "district_name", "district_code",
+                            "school_name", "school_code", "grade", "subject", "gender",
+                            "race_ethnicity", "special_education_status", "english_learner_status",
+                            "free_reduced_lunch_2_levels", "free_reduced_lunch_3_levels",
+                            "race_ethnicity_grouped", "race_ethnicity_bipoc", "num_tested",
+                            "pct_proficient"))
+
+# merge with df_achievement_race_ethnicity_by_grade
+df_full <- full_join(df_full, df_achievement_race_ethnicity_by_grade,
+                     by = c("school_year", "entity_type", "district_name", "district_code",
+                            "school_name", "school_code", "grade", "subject", "gender",
+                            "race_ethnicity", "special_education_status", "english_learner_status",
+                            "free_reduced_lunch_2_levels", "free_reduced_lunch_3_levels",
+                            "race_ethnicity_grouped", "race_ethnicity_bipoc", "num_tested",
+                            "pct_proficient", "avg_VSS"))
+
+# merge with df_achievement_SWD_stu_all_grades
+df_full <- full_join(df_full, df_achievement_SWD_stu_all_grades,
+                     by = c("school_year", "entity_type", "district_name", "district_code",
+                            "school_name", "school_code", "grade", "subject", "gender",
+                            "race_ethnicity", "special_education_status", "english_learner_status",
+                            "free_reduced_lunch_2_levels", "free_reduced_lunch_3_levels",
+                            "race_ethnicity_grouped", "race_ethnicity_bipoc", "num_tested",
+                            "pct_proficient"))
+
+# merge with df_achievement_SWD_stu_by_grade
+df_full <- full_join(df_full, df_achievement_SWD_stu_by_grade,
+                     by = c("school_year", "entity_type", "district_name", "district_code",
+                            "school_name", "school_code", "grade", "subject", "gender",
+                            "race_ethnicity", "special_education_status", "english_learner_status",
+                            "free_reduced_lunch_2_levels", "free_reduced_lunch_3_levels",
+                            "race_ethnicity_grouped", "race_ethnicity_bipoc", "num_tested",
+                            "pct_proficient", "avg_VSS"))
+```
+
+
+
+# Update values for variables
+```{r}
+df_full <- df_full %>%
+  mutate(support_org = case_when(district_name == "State of Connecticut" ~ "N/A - State of Connecticut",
+                                TRUE ~ support_org))
+```
+
+
+# Drop unecessary variables
+```{r}
+# Drop all years before SY 17-18
+df_full <- df_full %>%
+  filter(school_year %in% c("2017-18", "2018-19", "2019-20", "2020-21", "2021-22", "2022-23", "2023-24"))
+
+# Drop "avg_vss" (unclear what this is, originally from df_achievement_all_stu_by_grade)
+#df_full <- df_full %>%
+#  select(-avg_VSS)
+
+# Drop unnecessary variable
+df_full <- df_full %>%
+  select(-(district_name_SHORT))
+
+#glimpse(df_full)
+```
+
+# Check for any duplicates
+```{r}
+ df_full %>%
+  get_dupes()
+
+df_full %>%
+  filter(school_year == "2022-23" & subject == "All Subjects" & grade == "All Grades" &
+           race_ethnicity == "All Students" & race_ethnicity_grouped == "All Students" &
+           race_ethnicity_bipoc == "All Students" & gender == "All Students" &
+           english_learner_status == "All Students" & special_education_status == "All Students" &
+           free_reduced_lunch_3_levels == "All Students" & free_reduced_lunch_2_levels == "All Students") %>%
+  get_dupes(school_year, district_name, school_name, subject, grade, KEI_domain)
+```
+
+# Create new variables/cols derivative of the data, to use in later analysis
+```{r}
+# None
+```
+
+# Write cleaned & merged df to data/clean folder ---------------------
+```{r}
+### RDS
+df_full %>% saveRDS(here("data/clean/full_dataset.rds"))
+
+### Excel
+# Load the existing workbook
+wb <- openxlsx::loadWorkbook(here("output/full_dataset.xlsx")
+
+# Write to existing sheet in Excel workbook
+openxlsx::writeData(wb, sheet = "Data", df_full, colNames = T)
+openxlsx::saveWorkbook(wb, here("output/full_dataset.xlsx", overwrite = T)
+```
+
+
+
