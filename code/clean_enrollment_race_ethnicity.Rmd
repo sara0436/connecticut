@@ -1,6 +1,6 @@
 ---
 title: "Data Cleaning File"
-subtitle: CT EdSight Data - Enrollment, Race/Ethnicity"
+subtitle: "CT EdSight Data - Enrollment, Race/Ethnicity"
 author: "Sara McClafferty"
 date: "r Sys.Date()"
 output: none
