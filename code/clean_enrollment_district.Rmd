@@ -1,6 +1,6 @@
 ---
 title: "Data Cleaning File"
-subtitle: "CT Landscape Scan - Enrollment Data"
+subtitle: "CT EdSight Data - District Enrollment"
 author: "Sara McClafferty"
 date: "r Sys.Date()"
 output: none
@@ -158,5 +158,5 @@ df <- df %>% subset(select = -c(free_reduced_price_lunch_eligibility))
 
 # Write clean df to data/clean folder ---------------------
 ```{r}
-df %>% saveRDS(here("data/clean/enrollment/enrollment.rds"))
+df %>% saveRDS(here("data/clean/enrollment/enrollment_district.rds"))
 ```
