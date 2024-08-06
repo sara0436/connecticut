@@ -1,0 +1,179 @@
+---
+title: "Data Cleaning File"
+subtitle: "CT EdSight Data - Smarter Balanced Achievement, All Students"
+author: "Sara McClafferty"
+date: "r Sys.Date()"
+output: none
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code.
+
+  - Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+  - Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+  - When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+  - The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
+
+# Setup
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load Packages
+```{r packages, include=FALSE}
+# Clear environment
+rm(list = ls())
+
+# Load packages - first pacman, installing if necessary, then others
+if (!require("pacman")) install.packages("pacman"); library(pacman)
+pacman::p_load(here, readxl, tidyverse, janitor, lubridate, skimr)
+pacman::p_load_gh("tntp/tntpr")
+```
+
+# Load Data
+```{r}
+# Load data - school level
+df_school <- read_csv(here("data/raw/smarterbalanced_achievement/CT_smarterbalanced_achievement_all_students_all_grades_SCHOOL.csv"),
+               skip = 6, na = c("*"), col_names = c("district", "district code", "school", "school code", "subject", "201516_num",
+               "201516_pct", "201617_num", "201617_pct", "201718_num", "201718_pct",
+               "201819_num", "201819_pct", "202122_num", "202122_pct", "202223_num", "202223_pct")) %>% 
+  clean_names %>%
+  rename(school_name = school,
+         school_code = school_code,
+         district_name = district,
+         district_code = district_code)
+
+
+# Load data - district level
+df_district <- read_csv(here("data/raw/smarterbalanced_achievement/CT_smarterbalanced_achievement_all_students_all_grades.csv"),
+               skip = 6, na = c("*"), col_names = c("district", "district code", "subject", "201516_num",
+               "201516_pct", "201617_num", "201617_pct", "201718_num", "201718_pct",
+               "201819_num", "201819_pct", "202122_num", "202122_pct", "202223_num", "202223_pct")) %>% 
+  clean_names %>%
+  rename(district_name = district,
+         district_code = district_code)
+
+
+# Load data - state level 
+df_state <- read_csv(here("data/raw/smarterbalanced_achievement/CT_smarterbalanced_achievement_all_students_all_grades_STATE.csv"),
+               skip = 6, na = c("*"), col_names = c("district", "subject", "201516_num",
+               "201516_pct", "201617_num", "201617_pct", "201718_num", "201718_pct",
+               "201819_num", "201819_pct", "202122_num", "202122_pct", "202223_num", "202223_pct")) %>% 
+  clean_names %>%
+  rename(district_name = district) %>% 
+  mutate(district_code = factor("0000000")) %>% 
+  relocate(district_code, .after = district_name)
+
+
+# Stack school, district, & state-level data
+df <- plyr::rbind.fill(df_school, df_district, df_state)
+```
+
+# Pivot longer, then wider
+```{r}
+df <- df %>% 
+  pivot_longer(
+    cols = !(district_name:subject),
+    names_to = c("school_year", "measure"),
+    names_sep = ("_"),
+    values_to = "value") %>% 
+  pivot_wider(
+    names_from = c("measure"),
+    values_from = c("value"))
+```
+
+# Validate and standardize each variable
+```{r}
+# school_year
+df <- df %>% 
+  mutate(school_year = case_when(school_year == "x201516" ~ "2015-16",
+                                 school_year == "x201617" ~ "2016-17",
+                                 school_year == "x201718" ~ "2017-18",
+                                 school_year == "x201819" ~ "2018-19",
+                                 school_year == "x202122" ~ "2021-22",
+                                 school_year == "x202223" ~ "2022-23",
+                                 TRUE ~ NA),
+    school_year = factor(school_year, levels = c("2015-16", "2016-17", "2017-18", "2018-19",
+                                                 "2020-21", "2021-22", "2022-23")))
+
+# district_code
+df <- df %>% 
+  mutate(district_code = factor(district_code))
+
+# district_name
+df <- df %>% 
+  mutate(district_name = factor(district_name))
+
+# school_code
+df <- df %>% 
+  mutate(school_code = factor(school_code))
+
+# school_name
+df <- df %>% 
+  mutate(school_name = factor(school_name))
+
+# subject
+df <- df %>% 
+  mutate(subject = factor(subject))
+
+# number
+df <- df %>%
+  rename(num_tested = num) %>% 
+  mutate(num_tested = as.numeric(num_tested))
+
+# percent
+df <- df %>%
+  rename(pct_proficient = pct) %>% 
+  mutate(pct_proficient = as.numeric(pct_proficient))
+```
+
+# Remove any empty rows or columns
+```{r}
+df <- df %>%
+  remove_empty("rows") %>% 
+  remove_empty("cols")
+```
+
+# Check for any duplicates
+```{r}
+ df %>%
+  get_dupes()
+
+df %>%
+  get_dupes(school_year, district_name, school_name, subject)
+```
+
+# Create new variables/cols derivative of the data, to use in later analysis
+```{r}
+# create variable with 'entity_type' (state, district, school)
+df <- df %>%
+  mutate(entity_type = case_when(district_name == "State of Connecticut" ~ "State",
+                                 !is.na(school_name) ~ "School",
+                                 TRUE ~ "District")) %>% 
+  relocate(entity_type, .before = district_name)
+
+
+# add 'school_name' for districts (i.e., same as district name)
+df <- df %>% mutate(school_name = case_when(is.na(school_name) ~ district_name,
+                                              TRUE ~ school_name))
+```
+
+# Add group/subgroup info for demographics columns
+```{r}
+df <- df %>%
+  mutate(grade = factor("All Grades"),
+         gender = factor("All Students"),
+         race_ethnicity = factor("All Students"),
+         english_learner_status = factor("All Students"),
+         special_education_status = factor("All Students"),
+         free_reduced_lunch_3_levels = factor("All Students"),
+         free_reduced_lunch_2_levels = factor("All Students"),
+         race_ethnicity_grouped = factor("All Students"),
+         race_ethnicity_bipoc = factor("All Students")
+         )
+```
+
+# Write clean df to data/clean folder ---------------------
+```{r}
+df %>% saveRDS(here("data/clean/smarterbalanced_achievement/smarterbalanced_achievement_all_students.rds"))
+```
