@@ -1,0 +1,132 @@
+---
+title: "Data Cleaning File"
+subtitle: "CT EdSight Data - School Enrollment"
+author: "Sara McClafferty"
+date: "r Sys.Date()"
+output: none
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code.
+
+  - Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+  - Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+  - When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+  - The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
+
+# Setup
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load Packages
+```{r packages, include=FALSE}
+# Clear environment
+rm(list = ls())
+
+# Load packages - first pacman, installing if necessary, then others
+if (!require("pacman")) install.packages("pacman"); library(pacman)
+pacman::p_load(here, readxl, tidyverse, janitor, lubridate, skimr)
+```
+
+# Load Data
+```{r}
+# Load data
+df <- read_excel(here("data/raw/enrollment/CT_school_enrollment_data.xlsx"),
+                 sheet = "Results", col_types = c("text", "text", "text", "text", "numeric"))
+
+# Standardize column names
+df <- df %>%
+  clean_names %>% 
+  rename(school_year = school_year,
+         district_name = district,
+         school_name = school) %>% 
+  filter(student_group == "All Students")
+```
+
+# Validate and standardize each variable
+```{r}
+# year
+df <- df %>% 
+  mutate(school_year = factor(school_year, levels = c ("2017-18", "2018-19", "2019-20", "2020-21", "2021-22", "2022-23", "2023-24")))
+
+# district_name
+df <- df %>% 
+  mutate(district_name = factor(district_name))
+
+# school_name
+df <- df %>% 
+  mutate(school_name = factor(school_name))
+
+# student_count
+df <- df %>%
+  mutate(student_count = as.numeric(df$student_count))
+```
+
+# Remove any empty rows or columns
+```{r}
+df <- df %>%
+  remove_empty("rows") %>% 
+  remove_empty("cols")
+```
+
+# Check for any duplicates
+```{r}
+ df %>%
+  get_dupes()
+
+df %>%
+  get_dupes(school_year, district_name, school_name)
+```
+
+# Create new variables/cols derivative of the data, to use in later analysis
+```{r}
+#N/A
+```
+
+# Add group/subgroup info for demographics columns
+```{r}
+df <- df %>%
+  mutate(subject = factor("All Subjects"))
+
+df <- df %>%
+  mutate(grade = factor("All Grades"))
+
+df <- df %>%
+  mutate(gender = factor("All Students"))
+
+df <- df %>%
+  mutate(gender = factor("All Students"))
+
+df <- df %>%
+  mutate(race_ethnicity = factor("All Students"))
+
+df <- df %>%
+  mutate(english_learner_status = factor("All Students"))
+
+df <- df %>%
+  mutate(special_education_status = factor("All Students"))
+
+df <- df %>%
+  mutate(free_reduced_lunch_3_levels = factor("All Students"))
+
+df <- df %>%
+  mutate(free_reduced_lunch_2_levels = factor("All Students"))
+
+df <- df %>%
+  mutate(race_ethnicity_bipoc = factor("All Students"))
+
+df <- df %>%
+  mutate(race_ethnicity_grouped = factor("All Students"))
+```
+
+# Drop unnecessary columns
+```{r}
+df <- df %>% subset(select = -c(student_group))
+```
+
+
+# Write clean df to data/clean folder ---------------------
+```{r}
+df %>% saveRDS(here("data/clean/enrollment/enrollment_school.rds"))
+```
